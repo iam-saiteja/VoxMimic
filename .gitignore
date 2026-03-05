@@ -1,0 +1,37 @@
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Documentation
+docs/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Editor and IDE
+.vscode/
+.idea/
+
+# Testing and coverage
+.pytest_cache/
+.mypy_cache/
+.tox/
+.coverage
+.coverage.*
+
+# Misc
+.DS_Store
+*.log
+
+# Local VoxMimic runtime files (if accidentally placed in repo)
+.voxmimic/

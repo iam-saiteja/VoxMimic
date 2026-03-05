@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voxmimic"
+version = "0.1.0"
+description = "Rewrite AI-generated text in your personal voice."
+requires-python = ">=3.10"
+dependencies = [
+    "typer",
+    "spacy",
+    "textstat",
+    "sentence-transformers",
+    "numpy",
+    "openai",
+    "rich",
+]
+
+[project.scripts]
+voxmimic = "voxmimic.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["voxmimic*"]
