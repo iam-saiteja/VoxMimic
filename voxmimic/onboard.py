@@ -8,9 +8,8 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.text import Text
 
-VOXMIMIC_DIR = Path.home() / ".voxmimic"
-RAW_SAMPLES_PATH = VOXMIMIC_DIR / "raw_samples.json"
-PROFILE_PATH = VOXMIMIC_DIR / "profile.vox"
+from voxmimic.storage import VOXMIMIC_DIR, RAW_SAMPLES_PATH, PROFILE_PATH, save_profile
+from voxmimic.style import extract_features, compute_embedding
 
 QUESTIONS = [
     "Describe what you did today or yesterday.",
@@ -98,12 +97,19 @@ def run() -> None:
     with open(RAW_SAMPLES_PATH, "w", encoding="utf-8") as f:
         json.dump(answers, f, ensure_ascii=False, indent=2)
 
+    # Build and save the style profile
+    non_empty = [a for a in answers if a and a.strip()]
+    console.print("\n[dim]Building your style profile...[/dim]")
+    features = extract_features(non_empty if non_empty else [""])
+    embedding = compute_embedding(non_empty if non_empty else [""])
+    save_profile(features, embedding, len(non_empty))
+
     console.print()
     console.print(
         Panel(
-            f"[bold green]Onboarding complete![/bold green]\n"
-            f"Your {len([a for a in answers if a])} answer(s) have been saved to:\n"
-            f"[dim]{RAW_SAMPLES_PATH}[/dim]",
+            f"[bold green]Profile built and saved.[/bold green]\n"
+            f"Processed [bold]{len(non_empty)}[/bold] answer(s) into your Personal Style Vector.\n\n"
+            f"Run [bold cyan]voxmimic convert[/bold cyan] to use it.",
             border_style="green",
         )
     )

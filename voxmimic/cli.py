@@ -4,10 +4,12 @@ import typer
 from rich.console import Console
 
 from voxmimic.onboard import run as run_onboard
+from voxmimic.convert import run as run_inspect
+from voxmimic.add import run as run_add
 
 app = typer.Typer(
     name="voxmimic",
-    help="VoxMimic — rewrite AI text in your personal voice.",
+    help="VoxMimic — learn and inspect your personal writing style.",
     add_completion=False,
 )
 
@@ -21,15 +23,15 @@ def onboard():
 
 
 @app.command()
-def convert():
-    """Take any text input and return it rewritten in your voice."""
-    console.print("[bold yellow]convert[/bold yellow] — not yet implemented.")
+def inspect():
+    """Print a human-readable summary of what VoxMimic learned about your writing."""
+    run_inspect()
 
 
 @app.command()
 def add():
     """Accept new text and update your existing style profile."""
-    console.print("[bold yellow]add[/bold yellow] — not yet implemented.")
+    run_add()
 
 
 if __name__ == "__main__":

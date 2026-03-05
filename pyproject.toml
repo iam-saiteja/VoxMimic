@@ -13,7 +13,6 @@ dependencies = [
     "textstat",
     "sentence-transformers",
     "numpy",
-    "openai",
     "rich",
 ]
 

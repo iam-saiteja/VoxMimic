@@ -3,5 +3,4 @@ spacy
 textstat
 sentence-transformers
 numpy
-openai
 rich
