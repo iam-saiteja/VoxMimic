@@ -94,7 +94,10 @@ def run() -> None:
     f = features
 
     console.print()
-    console.print(Rule(f"[bold cyan]Your Style Profile[/bold cyan] [dim]({sample_count} sample(s))[/dim]", style="cyan"))
+    console.print(Rule(
+        f"[bold cyan]Your Style Profile[/bold cyan] [dim]({sample_count} sample(s))[/dim]",
+        style="cyan",
+    ))
     console.print()
 
     table = Table(
@@ -148,5 +151,3 @@ def run() -> None:
         "Run: [bold cyan]voxmimic add[/bold cyan][/dim]"
     )
     console.print()
-
-

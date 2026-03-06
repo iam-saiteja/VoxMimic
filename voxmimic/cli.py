@@ -4,8 +4,7 @@ import typer
 from rich.console import Console
 
 from voxmimic.onboard import run as run_onboard
-from voxmimic.convert import run as run_inspect
-from voxmimic.converter import run as run_convert
+from voxmimic.inspect import run as run_inspect
 from voxmimic.add import run as run_add
 from voxmimic.vox_trainer import run as run_train
 from voxmimic.vox_convert import run as run_vox_convert
@@ -29,12 +28,6 @@ def onboard():
 def inspect():
     """Print a human-readable summary of what VoxMimic learned about your writing."""
     run_inspect()
-
-
-@app.command()
-def convert():
-    """Rewrite any text in your personal voice — fully offline, no AI."""
-    run_convert()
 
 
 @app.command()
