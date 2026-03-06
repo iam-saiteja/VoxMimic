@@ -38,9 +38,13 @@ def convert():
 
 
 @app.command()
-def add():
+def add(
+    bulk: bool = typer.Option(
+        False, "--bulk", help="Accept unlimited samples until DONE is typed."
+    ),
+):
     """Accept new text and update your existing style profile."""
-    run_add()
+    run_add(bulk=bulk)
 
 
 @app.command()
