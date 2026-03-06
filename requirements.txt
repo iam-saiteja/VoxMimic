@@ -4,3 +4,6 @@ textstat
 sentence-transformers
 numpy
 rich
+torch
+transformers
+sentencepiece
