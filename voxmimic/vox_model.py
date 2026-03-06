@@ -104,9 +104,11 @@ class VoxConditionedT5(nn.Module):
         # Run T5 encoder
         encoder_outputs = self.t5.encoder(input_ids=input_ids)
 
-        # Add style conditioning to hidden states
+        # Add scaled style vector — small alpha prevents distortion of encoder hidden states
+        alpha = 0.1
         conditioned_hidden = (
-            encoder_outputs.last_hidden_state + style_vector.unsqueeze(0).unsqueeze(0)
+            encoder_outputs.last_hidden_state
+            + alpha * style_vector.unsqueeze(0).unsqueeze(0)
         )
 
         # Return modified encoder outputs
@@ -146,38 +148,22 @@ class VoxConditionedT5(nn.Module):
             truncation=True,
         )
 
-        # Run T5 encoder
-        encoder_outputs = self.t5.encoder(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-        )
-
-        # Condition: add style_vector to every encoder hidden state
-        # encoder_outputs.last_hidden_state: (1, seq_len, 512)
-        # style_vector: (512,)
-        conditioned_hidden = (
-            encoder_outputs.last_hidden_state + style_vector.unsqueeze(0).unsqueeze(0)
+        # Build conditioned encoder outputs (alpha-scaled style injection)
+        conditioned_encoder_outputs = self.apply_style(
+            inputs["input_ids"], style_vector
         )
 
         # Generate with conditioned encoder states
-        # We reconstruct encoder outputs with the modified hidden states
-        from transformers.modeling_outputs import BaseModelOutput
-
-        modified_encoder_outputs = BaseModelOutput(
-            last_hidden_state=conditioned_hidden,
-            hidden_states=encoder_outputs.hidden_states,
-            attentions=encoder_outputs.attentions,
-        )
-
-        outputs = self.t5.generate(
-            encoder_outputs=modified_encoder_outputs,
+        output_ids = self.t5.generate(
+            encoder_outputs=conditioned_encoder_outputs,
             attention_mask=inputs["attention_mask"],
-            max_length=max_length,
+            max_new_tokens=200,
             num_beams=4,
             early_stopping=True,
+            no_repeat_ngram_size=3,
         )
 
-        decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        decoded = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
         return decoded
 
     def save_projection_layer(self, path: Path | str) -> None:
