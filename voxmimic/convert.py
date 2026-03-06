@@ -90,7 +90,7 @@ def run() -> None:
         )
         raise typer.Exit(code=1)
 
-    features, _embedding, sample_count = load_profile()
+    features, _embedding, sample_count, _raw_texts = load_profile()
     f = features
 
     console.print()

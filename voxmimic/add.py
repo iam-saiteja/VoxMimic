@@ -69,7 +69,7 @@ def run() -> None:
             "More text gives a sharper profile.[/yellow]"
         )
 
-    existing_features, existing_embedding, sample_count = load_profile()
+    existing_features, existing_embedding, sample_count, existing_raw_texts = load_profile()
 
     console.print("[dim]Processing...[/dim]")
     new_features = extract_features([new_text])
@@ -88,7 +88,10 @@ def run() -> None:
     if norm > 0:
         merged_embedding = (merged_embedding / norm).astype(np.float32)
 
-    save_profile(merged_features, merged_embedding, sample_count + 1)
+    # Append new text to raw texts
+    updated_raw_texts = existing_raw_texts + [new_text]
+
+    save_profile(merged_features, merged_embedding, sample_count + 1, updated_raw_texts)
 
     console.print(
         Panel(

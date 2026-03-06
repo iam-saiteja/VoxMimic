@@ -1,6 +1,5 @@
 """Onboarding flow — asks questions, collects answers, saves raw samples."""
 
-import json
 from pathlib import Path
 
 from rich.console import Console
@@ -8,7 +7,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.text import Text
 
-from voxmimic.storage import VOXMIMIC_DIR, RAW_SAMPLES_PATH, PROFILE_PATH, save_profile
+from voxmimic.storage import VOXMIMIC_DIR, PROFILE_PATH, save_profile
 from voxmimic.style import extract_features, compute_embedding
 
 QUESTIONS = [
@@ -92,17 +91,12 @@ def run() -> None:
             console.print("[dim yellow]Skipped (no answer recorded).[/dim yellow]")
         answers.append(answer)
 
-    # Save raw samples
-    VOXMIMIC_DIR.mkdir(parents=True, exist_ok=True)
-    with open(RAW_SAMPLES_PATH, "w", encoding="utf-8") as f:
-        json.dump(answers, f, ensure_ascii=False, indent=2)
-
     # Build and save the style profile
     non_empty = [a for a in answers if a and a.strip()]
     console.print("\n[dim]Building your style profile...[/dim]")
     features = extract_features(non_empty if non_empty else [""])
     embedding = compute_embedding(non_empty if non_empty else [""])
-    save_profile(features, embedding, len(non_empty))
+    save_profile(features, embedding, len(non_empty), non_empty if non_empty else [""])
 
     console.print()
     console.print(

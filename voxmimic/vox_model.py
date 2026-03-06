@@ -82,6 +82,40 @@ class VoxConditionedT5(nn.Module):
         style_vector = self.style_projection(vox_tensor)  # (512,)
         return style_vector
 
+    def apply_style(
+        self, input_ids: torch.Tensor, style_vector: torch.Tensor
+    ) -> object:
+        """Run T5 encoder and add style conditioning to hidden states.
+
+        Parameters
+        ----------
+        input_ids:
+            Tokenized input tensor of shape (batch, seq_len)
+        style_vector:
+            512-dim style conditioning vector
+
+        Returns
+        -------
+        BaseModelOutput
+            Modified encoder outputs with style conditioning applied
+        """
+        from transformers.modeling_outputs import BaseModelOutput
+
+        # Run T5 encoder
+        encoder_outputs = self.t5.encoder(input_ids=input_ids)
+
+        # Add style conditioning to hidden states
+        conditioned_hidden = (
+            encoder_outputs.last_hidden_state + style_vector.unsqueeze(0).unsqueeze(0)
+        )
+
+        # Return modified encoder outputs
+        return BaseModelOutput(
+            last_hidden_state=conditioned_hidden,
+            hidden_states=encoder_outputs.hidden_states,
+            attentions=encoder_outputs.attentions,
+        )
+
     def forward(
         self,
         input_text: str,

@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import random
+import re
 from pathlib import Path
 
+import numpy as np
+import spacy
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from rich.console import Console
 from rich.progress import track
 
-from voxmimic.storage import VOXMIMIC_DIR, RAW_SAMPLES_PATH, load_profile
+from voxmimic.storage import VOXMIMIC_DIR, load_profile, profile_exists
 from voxmimic.vox_model import VoxConditionedT5
 
 console = Console()
@@ -39,6 +41,16 @@ _CASUAL_TO_FORMAL: list[tuple[str, str]] = [
 ]
 
 
+# Lazy-loaded spacy model
+_nlp = None
+
+def _get_nlp():
+    global _nlp
+    if _nlp is None:
+        _nlp = spacy.load("en_core_web_sm")
+    return _nlp
+
+
 def generate_synthetic_pairs(raw_samples: list[str]) -> list[dict]:
     """Create synthetic (formal → casual) training pairs from user's raw samples.
 
@@ -50,35 +62,36 @@ def generate_synthetic_pairs(raw_samples: list[str]) -> list[dict]:
     Parameters
     ----------
     raw_samples:
-        List of user's natural writing samples from raw_samples.json
+        List of user's natural writing samples from profile.vox
 
     Returns
     -------
     list[dict]
         List of {"input": str, "target": str} training pairs
     """
-    import re
-
+    nlp = _get_nlp()
     pairs: list[dict] = []
 
     for sample in raw_samples:
         if not sample or not sample.strip():
             continue
 
-        sentences = re.split(r"(?<=[.!?])\s+", sample.strip())
-        for sent in sentences:
-            if len(sent.split()) < 4:
+        # Use spacy for proper sentence segmentation
+        doc = nlp(sample.strip())
+        for sent in doc.sents:
+            sent_text = sent.text.strip()
+            if len(sent_text.split()) < 4:
                 continue  # skip very short sentences
 
             # Create formal version
-            formal = sent
+            formal = sent_text
             for casual, formal_word in _CASUAL_TO_FORMAL:
                 pattern = re.compile(r"\b" + re.escape(casual) + r"\b", re.IGNORECASE)
                 formal = pattern.sub(formal_word, formal)
 
             # Only keep pairs where formalization actually changed something
-            if formal != sent:
-                pairs.append({"input": formal, "target": sent})
+            if formal != sent_text:
+                pairs.append({"input": formal, "target": sent_text})
 
     return pairs
 
@@ -86,10 +99,11 @@ def generate_synthetic_pairs(raw_samples: list[str]) -> list[dict]:
 def train_vox_layer(
     model: VoxConditionedT5,
     pairs: list[dict],
-    style_vector: torch.Tensor,
+    features: dict,
+    embedding: np.ndarray,
     epochs: int = 10,
     batch_size: int = 4,
-    lr: float = 1e-3,
+    lr: float = 5e-4,
 ) -> None:
     """Train the VOX projection layer on synthetic pairs.
 
@@ -101,100 +115,86 @@ def train_vox_layer(
         VoxConditionedT5 instance
     pairs:
         List of {"input": formal_text, "target": casual_text} dicts
-    style_vector:
-        512-dim style conditioning vector (output of model.encode_vox)
+    features:
+        Style features dict (13 features)
+    embedding:
+        384-dim style embedding
     epochs:
         Number of training epochs
     batch_size:
-        Training batch size
+        Training batch size (not used in current implementation)
     lr:
         Learning rate
     """
     optimizer = optim.Adam(model.style_projection.parameters(), lr=lr)
 
     model.train()
-    console.print(f"[bold cyan]Training VOX layer[/bold cyan] — {len(pairs)} pairs, {epochs} epochs")
+    console.print(
+        f"[bold cyan]Training VOX layer[/bold cyan] — {len(pairs)} pairs, {epochs} epochs"
+    )
 
     for epoch in range(epochs):
-        random.shuffle(pairs)
-        total_loss = 0.0
-        num_batches = 0
+        optimizer.zero_grad()
+        epoch_loss = 0.0
 
-        for i in track(
-            range(0, len(pairs), batch_size),
-            description=f"Epoch {epoch + 1}/{epochs}",
-            console=console,
-        ):
-            batch = pairs[i : i + batch_size]
-            optimizer.zero_grad()
+        for pair in pairs:
+            # Recompute style_vector INSIDE the loop every iteration
+            # This creates a fresh computation graph each time
+            style_vector = model.encode_vox(features, embedding)
 
-            batch_loss = 0.0
-            for pair in batch:
-                # Tokenize input and target
-                inputs = model.tokenizer(
-                    pair["input"],
-                    return_tensors="pt",
-                    max_length=128,
-                    truncation=True,
-                )
-                targets = model.tokenizer(
-                    pair["target"],
-                    return_tensors="pt",
-                    max_length=128,
-                    truncation=True,
-                )
+            # Tokenize input and target
+            input_ids = model.tokenizer(
+                pair["input"],
+                return_tensors="pt",
+                truncation=True,
+                max_length=128,
+                padding=True,
+            ).input_ids
 
-                # Encoder forward with style conditioning
-                encoder_outputs = model.t5.encoder(
-                    input_ids=inputs["input_ids"],
-                    attention_mask=inputs["attention_mask"],
-                )
+            target_ids = model.tokenizer(
+                pair["target"],
+                return_tensors="pt",
+                truncation=True,
+                max_length=128,
+                padding=True,
+            ).input_ids
 
-                conditioned_hidden = (
-                    encoder_outputs.last_hidden_state
-                    + style_vector.unsqueeze(0).unsqueeze(0)
-                )
+            # Forward pass with style conditioning
+            encoder_outputs = model.apply_style(input_ids, style_vector)
+            outputs = model.t5(
+                input_ids=None,
+                encoder_outputs=(encoder_outputs.last_hidden_state,),
+                labels=target_ids,
+            )
 
-                # Decoder forward with target labels
-                decoder_input_ids = model.t5._shift_right(targets["input_ids"])
-                outputs = model.t5(
-                    encoder_outputs=(conditioned_hidden,),
-                    attention_mask=inputs["attention_mask"],
-                    decoder_input_ids=decoder_input_ids,
-                    labels=targets["input_ids"],
-                )
+            loss = outputs.loss
+            loss.backward()
+            epoch_loss += loss.item()
 
-                batch_loss += outputs.loss
-
-            batch_loss = batch_loss / len(batch)
-            batch_loss.backward()
-            optimizer.step()
-
-            total_loss += batch_loss.item()
-            num_batches += 1
-
-        avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-        console.print(f"  Loss: {avg_loss:.4f}")
+        # Step optimizer once per epoch
+        optimizer.step()
+        avg_loss = epoch_loss / len(pairs)
+        console.print(f"  Epoch {epoch + 1}/{epochs} — Loss: {avg_loss:.4f}")
 
     console.print("[bold green]Training complete.[/bold green]")
 
 
 def run() -> None:
     """CLI entry point for `voxmimic train`."""
-    if not RAW_SAMPLES_PATH.exists():
+    if not profile_exists():
         console.print(
-            "[bold red]No raw samples found.[/bold red] "
+            "[bold red]No profile found.[/bold red] "
             "Run [bold cyan]voxmimic onboard[/bold cyan] first."
         )
         return
 
-    # Load raw samples
-    with open(RAW_SAMPLES_PATH, encoding="utf-8") as f:
-        raw_samples: list[str] = json.load(f)
+    # Load profile (includes raw texts)
+    features, embedding, sample_count, raw_texts = load_profile()
+    console.print(f"[dim]Profile loaded — {sample_count} sample(s).[/dim]")
 
-    # Generate synthetic training pairs
+    # Generate synthetic training pairs from raw texts
     console.print("[dim]Generating synthetic training pairs...[/dim]")
-    pairs = generate_synthetic_pairs(raw_samples)
+    pairs = generate_synthetic_pairs(raw_texts)
 
     if len(pairs) < 5:
         console.print(
@@ -202,17 +202,12 @@ def run() -> None:
             "Add more samples with [bold cyan]voxmimic add[/bold cyan] for better results."
         )
 
-    # Load profile and encode style vector
-    features, embedding, sample_count = load_profile()
-    console.print(f"[dim]Profile loaded — {sample_count} sample(s).[/dim]")
-
     # Initialize model
     console.print("[dim]Loading T5-small (this may take a moment)...[/dim]")
     model = VoxConditionedT5()
-    style_vector = model.encode_vox(features, embedding)
 
-    # Train
-    train_vox_layer(model, pairs, style_vector, epochs=10, batch_size=4, lr=1e-3)
+    # Train (pass features and embedding, not pre-computed style_vector)
+    train_vox_layer(model, pairs, features, embedding, epochs=10, batch_size=4, lr=5e-4)
 
     # Save projection layer
     VOXMIMIC_DIR.mkdir(parents=True, exist_ok=True)

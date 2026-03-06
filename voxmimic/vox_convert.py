@@ -52,7 +52,7 @@ def run() -> None:
 
     # Load profile and model
     console.print("[dim]Loading T5-small and VOX layer...[/dim]")
-    features, embedding, sample_count = load_profile()
+    features, embedding, sample_count, _raw_texts = load_profile()
 
     model = VoxConditionedT5()
     model.load_projection_layer(VOX_LAYER_PATH)
