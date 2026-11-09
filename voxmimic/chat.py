@@ -158,7 +158,8 @@ class Session:
     def rewrite(self, text: str) -> None:
         self.source = text
         self.last_lesson = None
-        with console.status("[dim]Rewriting in your voice...[/dim]"):
+        with console.status("[dim]Rewriting in your voice...[/dim]") as status:
+            self.rewriter.on_progress = lambda i, n: status.update(f"[dim]Rewriting part {i} of {n}...[/dim]")
             result = self.rewriter.rewrite(text, audience=self.audience)
         self._show(result)
 

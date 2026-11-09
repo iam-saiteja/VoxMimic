@@ -44,8 +44,10 @@ def run(file: Path | None = None, clipboard: bool = False, to: str | None = None
         err_console.print(warning, style="yellow", markup=False)
 
     try:
-        with err_console.status("[dim]Rewriting in your voice...[/dim]"):
-            result = Rewriter(store, llm).rewrite(text, audience=to)
+        with err_console.status("[dim]Rewriting in your voice...[/dim]") as status:
+            rewriter = Rewriter(store, llm)
+            rewriter.on_progress = lambda i, n: status.update(f"[dim]Rewriting part {i} of {n}...[/dim]")
+            result = rewriter.rewrite(text, audience=to)
     except LLMError as e:
         err_console.print(f"That didn't work: {e}", style="red", markup=False)
         raise typer.Exit(code=1)

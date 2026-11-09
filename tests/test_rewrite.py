@@ -1,8 +1,13 @@
+import zlib
+
+import numpy as np
 from conftest import FakeLLM
 
 from voxmimic.checks import check_facts, restore_numbers
 from voxmimic.polish import polish
-from voxmimic.rewrite import Rewriter, clean_output, split_blocks, talks_about_the_task
+from voxmimic.rewrite import Rewriter, clean_output, detect_kind, split_blocks, talks_about_the_task
+from voxmimic.storage import Store
+from voxmimic.style import words
 from voxmimic.style import voice_match
 
 AI_TEXT = "It is important to note that the team utilized 3 servers. Furthermore, we do not expect Alice to return until 5 May."
@@ -302,3 +307,138 @@ def test_a_banned_opener_that_survives_is_reported(casual_store):
     casual_store.add_rule("opener", "i'm writing to ask")
     result = Rewriter(casual_store, FakeLLM("i'm writing to ask for more time")).rewrite("I am writing to request more time.")
     assert any("never do" in w for w in result.report.warnings)
+
+
+# -- examples, dropped sentences, speed ------------------------------------------------
+
+
+def test_detects_the_kind_of_writing():
+    assert detect_kind("Dear Sir, I require more time.") == "email"
+    assert detect_kind("Hi everyone! We need a meeting.") == "message"
+    assert detect_kind("Anything at all.", audience="my boss") == "email"
+    assert detect_kind("The river is wide.") is None
+
+
+def _prompt_of(llm):
+    return next(call for call in llm.calls if call[0]["content"].startswith("You rewrite"))
+
+
+def test_examples_include_the_same_kind_of_writing(store):
+    for i in range(6):
+        store.add_sample(f"so i went to the river number {i} and it was really nice honestly, just sat there", "answer", "story")
+    email = "good morning sir, i need two more days on the report, i want to get it right"
+    store.add_sample(email, "answer", "email")
+    llm = FakeLLM("good morning sir, i need more time")
+    Rewriter(store, llm).rewrite("Dear Sir, I require additional time on the river survey.")
+    assert any(m["content"] == email for m in _prompt_of(llm))
+
+
+def test_prompt_says_not_to_copy_typos(casual_store):
+    llm = FakeLLM("so it works")
+    Rewriter(casual_store, llm).rewrite("It functions correctly.")
+    assert "spelling mistakes" in _prompt_of(llm)[0]["content"]
+
+
+class _SentenceVectors:
+    """Stands in for real embeddings: a sentence matches anything sharing its first word."""
+
+    semantic = True
+
+    def vectors(self, texts):
+        out = []
+        for text in texts:
+            vec = np.zeros(64)
+            vec[zlib.crc32(words(text)[0].encode()) % 64] = 1.0
+            out.append(vec)
+        return np.stack(out)
+
+    def embed(self, texts):
+        return self.vectors(texts)
+
+    def similarity(self, a, b):
+        return 1.0
+
+
+def test_a_dropped_sentence_is_named(casual_store):
+    rewriter = Rewriter(casual_store, FakeLLM("alpha went fine and that was that"), candidates=1)
+    rewriter._embedder = _SentenceVectors()
+    result = rewriter.rewrite("Alpha went well for the team. Bravo arrives on the first of next month.")
+    assert any("left out" in w and "Bravo" in w for w in result.report.warnings)
+
+
+def test_repair_is_told_which_sentence_went_missing(casual_store):
+    llm = FakeLLM("alpha went fine and that was that", "alpha went fine and bravo comes next month")
+    rewriter = Rewriter(casual_store, llm, candidates=1)
+    rewriter._embedder = _SentenceVectors()
+    rewriter.rewrite("Alpha went well for the team. Bravo arrives on the first of next month.")
+    assert "Bravo arrives" in llm.calls[-1][-1]["content"]
+
+
+def test_hashed_vectors_arent_trusted_for_dropped_sentences(casual_store):
+    rewriter = Rewriter(casual_store, FakeLLM("x"))
+    assert rewriter._dropped_sentences("One long sentence here today. Another long sentence there today.", "nothing alike") == []
+
+
+def test_a_great_first_version_skips_the_rest(casual_store, monkeypatch):
+    from voxmimic import rewrite
+
+    monkeypatch.setattr(rewrite, "voice_match", lambda text, profile: 90)
+    great = "so it was fine overall today. i was pretty happy"
+    llm = FakeLLM(great, "should never be asked for")
+    rewriter = Rewriter(casual_store, llm, candidates=3)
+    rewriter._embedder = _SentenceVectors()
+    result = rewriter.rewrite("So it went fine overall today. I was happy with how it went.")
+    assert result.report.candidates_tried == 1 and result.text == great
+
+
+def test_a_weaker_first_version_still_gets_competition(casual_store, monkeypatch):
+    from voxmimic import rewrite
+
+    monkeypatch.setattr(rewrite, "voice_match", lambda text, profile: 50)
+    llm = FakeLLM("so it was fine overall today. i was pretty happy")
+    rewriter = Rewriter(casual_store, llm, candidates=3)
+    rewriter._embedder = _SentenceVectors()
+    result = rewriter.rewrite("So it went fine overall today. I was happy with how it went.")
+    assert result.report.candidates_tried == 3
+
+
+def test_progress_reports_each_part(casual_store):
+    seen = []
+    rewriter = Rewriter(casual_store, FakeLLM("so it went fine"), candidates=1)
+    rewriter.on_progress = lambda i, n: seen.append((i, n))
+    rewriter.rewrite("The first part went well.\n\nThe second part went well.")
+    assert seen == [(1, 2), (2, 2)]
+
+
+def test_pasted_text_is_never_written_to_disk(casual_store, isolated):
+    secret = "The acquisition of Zanzibar Holdings closes on the ninth."
+    rewriter = Rewriter(casual_store, FakeLLM("so the zanzibar holdings deal closes on the ninth"))
+    rewriter.rewrite(secret)
+    casual_store.db.commit()
+    for table in ("samples", "corrections", "neutrals", "vectors", "rules", "meta"):
+        for row in casual_store.db.execute(f"SELECT * FROM {table}"):
+            assert not any(isinstance(v, str) and "Zanzibar" in v for v in tuple(row)), table
+
+
+def test_old_caches_with_pasted_text_are_cleared(isolated):
+    store = Store()
+    store.set_vectors({"something pasted once": np.zeros(4)}, "m")
+    store.set_meta("vector_cache", "old")
+    assert Store().get_vectors(["something pasted once"], "m") == {}
+
+
+def test_a_low_voice_score_alone_doesnt_buy_a_repair(casual_store, monkeypatch):
+    """Measured: those repairs cost time and didn't raise voice or protect facts."""
+    from voxmimic import rewrite
+
+    monkeypatch.setattr(rewrite, "voice_match", lambda text, profile: 40)
+    llm = FakeLLM("so the team got the review done on time, it went fine")
+    result = Rewriter(casual_store, llm, candidates=1).rewrite("The team finished the review on time, and it went well.")
+    assert not result.report.repaired and result.report.candidates_tried == 1
+
+
+def test_a_copy_of_the_source_does_get_a_repair(casual_store):
+    source = "The team finished the review on time and the results were satisfactory."
+    llm = FakeLLM(source, "so the team got the review done on time and it went fine")
+    result = Rewriter(casual_store, llm, candidates=1).rewrite(source)
+    assert result.text.startswith("so the team") and result.report.repaired

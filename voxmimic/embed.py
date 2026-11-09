@@ -59,8 +59,12 @@ class Embedder:
                 self.name = HASH_MODEL
         return [hash_vector(t) for t in texts]
 
+    def vectors(self, texts: list[str]) -> np.ndarray:
+        """Vectors for text that must not be kept, like whatever was just pasted."""
+        return np.stack(self._compute(texts))
+
     def embed(self, texts: list[str]) -> np.ndarray:
-        """Vectors for texts, cached in the store when there is one."""
+        """Vectors for the person's own writing, cached in the store when there is one."""
         if not texts:
             return np.zeros((0, 1), dtype=np.float32)
         known = self.store.get_vectors(texts, self.name) if self.store else {}

@@ -106,6 +106,14 @@ class Store:
         self.db = sqlite3.connect(self.path)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(_SCHEMA)
+        self._clear_old_vector_cache()
+
+    def _clear_old_vector_cache(self) -> None:
+        """Earlier versions cached a vector keyed by pasted text. It's only a cache, so drop it once."""
+        if self.get_meta("vector_cache") != "own-writing-only":
+            with self.db:
+                self.db.execute("DELETE FROM vectors")
+            self.set_meta("vector_cache", "own-writing-only")
 
     # -- samples ------------------------------------------------------------
 
