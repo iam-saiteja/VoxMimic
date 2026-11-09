@@ -1,153 +1,77 @@
-"""Inspect command — prints a human-readable summary of the user's style profile."""
+"""What VoxMimic knows about how you write, and whether it's getting better."""
 
 from __future__ import annotations
 
 import typer
-from rich.console import Console
-from rich.rule import Rule
-from rich.table import Table
-from rich import box
 
-from voxmimic.storage import load_profile, profile_exists
-
-console = Console()
+from voxmimic.daily import coverage, progress
+from voxmimic.questions import REGISTER_LABELS
+from voxmimic.storage import Store
+from voxmimic.style import describe, held_out_strength
+from voxmimic.ui import dim, say, setup_io
 
 
-def _informality_label(score: float) -> str:
-    if score >= 0.75:
-        return "very casual"
-    if score >= 0.50:
-        return "casual"
-    if score >= 0.35:
-        return "moderately informal"
-    return "fairly formal"
+def show(store: Store) -> None:
+    profile = store.profile()
+    say("")
+    say(f"Your voice, from {profile.words:,} words across {profile.samples} pieces of writing", "bold cyan")
+    for line in describe(profile):
+        say(f"  • {line}")
 
+    strength = held_out_strength(store.weighted_samples())
+    if strength:
+        own, ai = strength
+        say("")
+        say("Can it tell you apart from AI?", "bold")
+        say(f"  On your writing it hasn't trained on, it scores {own}/100 for sounding like you. AI text scores {ai}/100.")
+        if own - ai < 25:
+            dim("  That's a thin gap. More writing, in different moods, will widen it.")
 
-def _variance_label(variance: float) -> str:
-    if variance > 20:
-        return "very high variance"
-    if variance > 10:
-        return "high variance"
-    if variance > 4:
-        return "moderate variance"
-    return "consistent length"
+    seen = coverage(store)
+    missing = [label for key, label in REGISTER_LABELS.items() if seen.get(key, 0) < 30]
+    if missing:
+        say("")
+        say("Still learning how you sound when:", "bold")
+        say("  " + ", ".join(missing))
 
+    swaps = store.swaps()
+    avoid = [r["a"] for r in store.rules("avoid")]
+    prefer = store.rules("prefer")
+    notes = store.rules("note")
+    if swaps or avoid or prefer or notes:
+        say("")
+        say("What you've told me", "bold")
+        for rule in prefer:
+            say(f'  • "{rule["b"]}", not "{rule["a"]}"')
+        for a, b, n in swaps[:8]:
+            say(f'  • "{b}", not "{a}"' + (f" ({n} times)" if n > 1 else ""))
+        if avoid:
+            say("  • never: " + ", ".join(avoid))
+        openers = [r["a"] for r in store.rules("opener")]
+        if openers:
+            say("  • never open with: " + ", ".join(openers))
+        for rule in notes[-4:]:
+            note = rule["a"]
+            say(f"  • {note[:100]}..." if len(note) > 100 else f"  • {note}")
 
-def _vocab_label(score: float) -> str:
-    if score >= 0.80:
-        return "rich and varied"
-    if score >= 0.60:
-        return "moderately varied"
-    return "repeats familiar words"
-
-
-def _comma_label(density: float) -> str:
-    if density >= 2.0:
-        return "heavy comma use"
-    if density >= 1.0:
-        return "moderate comma use"
-    return "light comma use"
-
-
-def _dash_label(density: float) -> str:
-    if density >= 0.5:
-        return "frequent dashes"
-    if density >= 0.2:
-        return "occasional dashes"
-    return "rare dashes"
-
-
-def _exclamation_label(density: float) -> str:
-    if density >= 0.5:
-        return "frequent"
-    if density >= 0.2:
-        return "moderate"
-    return "rare"
-
-
-def _contraction_label(ratio: float) -> str:
-    if ratio >= 0.08:
-        return "heavy"
-    if ratio >= 0.03:
-        return "moderate"
-    return "rare"
-
-
-def _tendency_label(noun_ratio: float, verb_ratio: float) -> str:
-    if noun_ratio > verb_ratio + 0.05:
-        return "noun-heavy"
-    if verb_ratio > noun_ratio + 0.05:
-        return "verb-driven"
-    return "balanced nouns and verbs"
+    p = progress(store)
+    if p["days"]:
+        say("")
+        say("Is it getting better?", "bold")
+        say(f"  You kept {p['kept']} of {p['days']} daily sentences as they were.")
+        if p["recent"] is not None and p["earlier"] is not None:
+            change = "up from" if p["recent"] > p["earlier"] else "down from" if p["recent"] < p["earlier"] else "same as"
+            say(f"  Lately {p['recent']:.0%} of each sentence survives your edits, {change} {p['earlier']:.0%} before.")
+        else:
+            dim("  After two weeks of daily sentences, this will show a trend.")
+    say("")
 
 
 def run() -> None:
-    """Entry point for voxmimic inspect."""
-    if not profile_exists():
-        console.print(
-            "[bold red]No style profile found.[/bold red] "
-            "Run [bold cyan]voxmimic onboard[/bold cyan] first."
-        )
+    """Entry point for `voxmimic inspect`."""
+    setup_io()
+    store = Store()
+    if store.word_count() == 0:
+        say("I don't know your voice yet. Run: voxmimic", "red")
         raise typer.Exit(code=1)
-
-    features, _embedding, sample_count, _raw_texts = load_profile()
-    f = features
-
-    console.print()
-    console.print(Rule(
-        f"[bold cyan]Your Style Profile[/bold cyan] [dim]({sample_count} sample(s))[/dim]",
-        style="cyan",
-    ))
-    console.print()
-
-    table = Table(
-        box=box.SIMPLE,
-        show_header=False,
-        pad_edge=False,
-        show_edge=False,
-        min_width=52,
-    )
-    table.add_column(style="bold white", min_width=22)
-    table.add_column(style="white")
-
-    table.add_row(
-        "Sentence length",
-        f"~{f['avg_sentence_length']:.1f} words avg  "
-        f"([dim]{_variance_label(f['sentence_length_variance'])}[/dim])",
-    )
-    table.add_row(
-        "Informality",
-        f"{f['informality_score']:.2f} / 1.0 — {_informality_label(f['informality_score'])}",
-    )
-    table.add_row(
-        "Punctuation",
-        f"{_comma_label(f['comma_density'])}, {_dash_label(f['dash_density'])}",
-    )
-    table.add_row(
-        "Vocabulary",
-        f"{_vocab_label(f['vocabulary_richness'])} ({f['vocabulary_richness']:.2f} score)",
-    )
-    table.add_row(
-        "Writing tendency",
-        _tendency_label(f["noun_ratio"], f["verb_ratio"]),
-    )
-    table.add_row(
-        "Exclamation use",
-        _exclamation_label(f["exclamation_density"]),
-    )
-    table.add_row(
-        "Contraction use",
-        _contraction_label(f["contraction_ratio"]),
-    )
-    table.add_row(
-        "Avg word length",
-        f"{f['avg_word_length']:.1f} characters",
-    )
-
-    console.print(table)
-    console.print(Rule(style="cyan"))
-    console.print(
-        "[dim]Profile sharpens as you add more samples. "
-        "Run: [bold cyan]voxmimic add[/bold cyan][/dim]"
-    )
-    console.print()
+    show(store)

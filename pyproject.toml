@@ -4,24 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voxmimic"
-version = "0.1.0"
+version = "0.2.0"
 description = "Rewrite AI-generated text in your personal voice."
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "typer",
-    "spacy",
-    "textstat",
-    "sentence-transformers",
     "numpy",
     "rich",
-    "torch",
-    "transformers",
-    "sentencepiece",
+    "prompt_toolkit",
 ]
 
+[project.optional-dependencies]
+anthropic = ["anthropic"]
+dev = ["pytest"]
+
 [project.scripts]
-voxmimic = "voxmimic.cli:app"
+voxmimic = "voxmimic.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["voxmimic*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

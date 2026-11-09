@@ -1,189 +1,80 @@
-"""Add command — accepts new text samples and merges them into the existing profile."""
+"""Add command: feed in writing you already have, from a file, a pipe, or by pasting."""
 
 from __future__ import annotations
 
-import numpy as np
+import re
+from pathlib import Path
+
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm
-from rich.rule import Rule
 
-from voxmimic.storage import load_profile, save_profile, profile_exists
-from voxmimic.style import extract_features, compute_embedding
+from voxmimic.storage import Store
+from voxmimic.style import extract_features, words
+from voxmimic.ui import dim, is_interactive, read_text, say, setup_io
 
-console = Console()
+_MIN_PARAGRAPH_WORDS = 8
 
 
-def _collect_multiline(prompt_label: str = "Sample") -> str:
-    """Read multiline stdin until two consecutive blank lines."""
-    console.print(f"[dim]  (press Enter twice when done)[/dim]")
-    lines: list[str] = []
-    blank_streak = 0
-    while True:
+def split_paragraphs(text: str) -> list[str]:
+    """One sample per paragraph, so each can be weighted and deduplicated on its own."""
+    return [p.strip() for p in re.split(r"\n\s*\n", text) if len(words(p)) >= _MIN_PARAGRAPH_WORDS] or (
+        [text.strip()] if text.strip() else []
+    )
+
+
+def looks_ai_written(text: str) -> bool:
+    return extract_features(text).get("ai_tells_p100", 0) >= 1.5
+
+
+def add_texts(store: Store, texts: list[str]) -> tuple[int, int]:
+    """Returns (saved, already known)."""
+    saved = skipped = 0
+    for text in texts:
+        if store.add_sample(text, "added") is None:
+            skipped += 1
+        else:
+            saved += 1
+    return saved, skipped
+
+
+def run(file: Path | None = None, bulk: bool = False, keep_all: bool = False) -> None:
+    """Entry point for `voxmimic add`."""
+    setup_io()
+    store = Store()
+
+    if file:
         try:
-            line = input()
-        except (EOFError, KeyboardInterrupt):
-            break
-        if line == "":
-            blank_streak += 1
-            if blank_streak >= 2:
-                while lines and lines[-1] == "":
-                    lines.pop()
-                break
-            lines.append(line)
-        else:
-            blank_streak = 0
-            lines.append(line)
-    return "\n".join(lines).strip()
-
-
-def _collect_bulk() -> list[str]:
-    """Bulk mode: collect text blocks until user types DONE on a line by itself."""
-    console.print(
-        Panel(
-            "[bold cyan]VoxMimic Add — Bulk Mode[/bold cyan]\n"
-            "Paste samples one after another. "
-            "Press Enter twice between samples. "
-            "Type [bold]DONE[/bold] on a line by itself to finish.",
-            border_style="cyan",
-        )
-    )
-
-    texts: list[str] = []
-    sample_num = 1
-    while True:
-        console.print(f"\n[bold white]Sample {sample_num}[/bold white] "
-                      f"[dim](or type DONE to finish)[/dim]")
-        lines: list[str] = []
-        blank_streak = 0
-        done = False
-        while True:
-            try:
-                line = input()
-            except (EOFError, KeyboardInterrupt):
-                done = True
-                break
-            # Check for DONE sentinel on its own line
-            if line.strip().upper() == "DONE":
-                done = True
-                break
-            if line == "":
-                blank_streak += 1
-                if blank_streak >= 2:
-                    while lines and lines[-1] == "":
-                        lines.pop()
-                    break
-                lines.append(line)
-            else:
-                blank_streak = 0
-                lines.append(line)
-
-        text = "\n".join(lines).strip()
-        if text:
-            texts.append(text)
-            console.print(f"[dim green]  ✓ Sample {sample_num} recorded "
-                          f"({len(text.split())} words)[/dim green]")
-            sample_num += 1
-
-        if done:
-            break
-
-    return texts
-
-
-def _collect_interactive() -> list[str]:
-    """Interactive mode: collect samples one at a time with y/n prompt."""
-    console.print(
-        Panel(
-            "[bold cyan]VoxMimic Add[/bold cyan]\n"
-            "Paste or type text written in your natural voice.",
-            border_style="cyan",
-        )
-    )
-
-    texts: list[str] = []
-    sample_num = 1
-    while True:
-        console.print(f"\n[bold white]Sample {sample_num}[/bold white]")
-        text = _collect_multiline()
-        if text.strip():
-            texts.append(text)
-            word_count = len(text.split())
-            console.print(f"[dim green]  ✓ Recorded ({word_count} words)[/dim green]")
-            if word_count < 10:
-                console.print(
-                    "[yellow]  ⚠ Short input — more text gives a sharper profile.[/yellow]"
-                )
-        else:
-            console.print("[dim yellow]  (empty — skipped)[/dim yellow]")
-
-        sample_num += 1
-        another = Confirm.ask("\n[cyan]Add another sample?[/cyan]", default=False)
-        if not another:
-            break
-
-    return texts
-
-
-def _merge_and_save(new_texts: list[str]) -> None:
-    """Extract features from all new texts, merge with existing profile, save."""
-    existing_features, existing_embedding, sample_count, existing_raw_texts = load_profile()
-
-    console.print("\n[dim]Processing all samples...[/dim]")
-    new_features = extract_features(new_texts)
-    new_embedding = compute_embedding(new_texts)
-
-    # Weighted merge: 70% existing, 30% new batch
-    merged_features: dict = {
-        k: round(0.7 * existing_features[k] + 0.3 * new_features[k], 8)
-        for k in existing_features
-    }
-
-    merged_embedding: np.ndarray = (
-        0.7 * existing_embedding + 0.3 * new_embedding
-    ).astype(np.float32)
-    norm = np.linalg.norm(merged_embedding)
-    if norm > 0:
-        merged_embedding = (merged_embedding / norm).astype(np.float32)
-
-    updated_raw_texts = existing_raw_texts + new_texts
-    new_total = sample_count + len(new_texts)
-
-    save_profile(merged_features, merged_embedding, new_total, updated_raw_texts)
-
-    console.print(
-        Panel(
-            f"[bold green]Profile updated.[/bold green] Your style is getting sharper.\n"
-            f"[dim]{len(new_texts)} new sample(s) merged. "
-            f"Total: {new_total}[/dim]",
-            border_style="green",
-        )
-    )
-
-
-def run(bulk: bool = False) -> None:
-    """Entry point for voxmimic add."""
-    if not profile_exists():
-        console.print(
-            Panel(
-                "[bold red]No style profile found.[/bold red]\n"
-                "Run [bold cyan]voxmimic onboard[/bold cyan] first to build your profile.",
-                title="Error",
-                border_style="red",
-            )
-        )
-        raise typer.Exit(code=1)
-
-    if bulk:
-        texts = _collect_bulk()
+            texts = split_paragraphs(file.read_text(encoding="utf-8"))
+        except OSError as e:
+            say(f"Couldn't read {file}: {e}", "red")
+            raise typer.Exit(code=1)
     else:
-        texts = _collect_interactive()
+        texts = []
+        if is_interactive():
+            say("Paste something you wrote yourself. " + ("Enter on an empty line to finish." if bulk else ""), "bold")
+        while True:
+            text = read_text()
+            if not text:
+                break
+            texts.extend(split_paragraphs(text) if not is_interactive() or bulk else [text])
+            if not bulk and is_interactive():
+                break
 
     if not texts:
-        console.print("[bold red]No samples collected. Exiting.[/bold red]")
-        raise typer.Exit(code=1)
+        say("Nothing to add.")
+        return
 
-    console.print(Rule(style="bright_black"))
-    _merge_and_save(texts)
+    suspect = [t for t in texts if looks_ai_written(t)]
+    if suspect:
+        say(f"{len(suspect)} of these look AI-written, which would teach me the wrong voice.", "yellow")
+        if keep_all:
+            dim("Keeping them anyway, since you asked.")
+        else:
+            dim("Skipping them. If they're really yours, run this again with --keep-all.")
+            texts = [t for t in texts if t not in suspect]
 
+    before = store.word_count()
+    saved, skipped = add_texts(store, texts)
+    if skipped:
+        dim(f"Skipped {skipped} i'd already seen.")
+    after = store.word_count()
+    say(f"Added {saved} piece(s), {after - before:,} words. I've now read {after:,} of your words.", "green")
