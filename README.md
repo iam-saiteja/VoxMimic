@@ -32,6 +32,8 @@ sounds like you: 18 → 67  ·  meaning kept: 92%
 
 That rewrite is real output from `gemma3:4b` after only six short answers. It's a fair first guess, and notice it isn't perfect: it opens with "okay" twice, and "pipeline" became "system". That's what the daily corrections are for.
 
+![How VoxMimic works: your writing feeds a profile, and the rewrite engine uses that profile and a local model to turn pasted text into your voice](architecture/png/1-whole-system.png)
+
 There's one box to type in, and it works out what you meant:
 
 | You type | It does |
@@ -47,15 +49,19 @@ There's one box to type in, and it works out what you meant:
 ## Setup
 
 ```bash
+python -m venv venv
+.\venv\Scripts\Activate.ps1      # Windows. On macOS or Linux: source venv/bin/activate
 pip install -e .
 
 # A local model. Nothing you write leaves your machine.
 # Ollama: https://ollama.com
 ollama pull gemma3:4b
-ollama pull nomic-embed-text    # optional: better example matching and meaning checks
+ollama pull nomic-embed-text    # optional: better example matching, and it enables the meaning and dropped-sentence checks at full strength
 
 voxmimic
 ```
+
+Activate the virtual environment in each new terminal before running `voxmimic`.
 
 Without a model it still works, using rules only: it removes AI phrasing and applies your punctuation and casing habits, but it can't restructure sentences.
 
@@ -73,11 +79,11 @@ Without a model it still works, using rules only: it removes AI phrasing and app
 
 ## How a rewrite works
 
-1. **Find examples.** It picks the passages of your writing closest to the text, and pairs each with a stiff AI version of itself. That gives the model before/after examples ending in your real words. Your corrections rank first.
-2. **Generate three candidates** from those examples and measured instructions like "sentences average 9 words", rather than adjectives like "casual".
+1. **Find examples.** It picks the passages of your writing closest to the text, favouring the same kind of writing, so an email learns from your emails. Each is paired with a stiff AI version of itself, which gives the model before/after examples ending in your real words. Your corrections rank first.
+2. **Generate up to two candidates** from those examples and measured instructions like "sentences average 9 words", rather than adjectives like "casual". It stops at one when the first is already good.
 3. **Apply your habits with rules**, the things a model can't be trusted to keep: casing, contractions, dashes, banned words, and word swaps you've taught it.
-4. **Score each one** for voice, meaning, and facts. Dropped or invented numbers and names, flipped negations, made-up personal stories, and replies that talk about the task instead of doing it all count against a candidate or disqualify it.
-5. **Repair once** if the best still has a known problem, telling the model exactly what's wrong.
+4. **Score each one** for voice, meaning, and facts. Dropped or invented numbers and names, sentences left out, flipped negations, made-up personal stories, and replies that talk about the task instead of doing it all count against a candidate or disqualify it.
+5. **Repair once** if the best still has a real problem, telling the model exactly what's wrong. A low voice score alone doesn't trigger this: testing showed it cost time and bought nothing.
 6. **Warn you** about anything still doubtful. It never hides a problem it noticed.
 
 ## Does it work?
@@ -86,11 +92,11 @@ Without a model it still works, using rules only: it removes AI phrasing and app
 
 | | VoxMimic | Plain prompt |
 |---|---|---|
-| Voice score, casual writer (from 20) | **68** | 46 |
-| Voice score, formal writer (from 39) | **55** | 44 |
-| Closer to its own writer than to the other | **12/12** | 7/12 |
+| Voice score, casual writer (from 20) | **69** | 44 |
+| Voice score, formal writer (from 39) | **51** | 44 |
+| Closer to its own writer than to the other | **12/12** | 6/12 |
 | No facts lost or invented | **12/12** | 8/12 |
-| Time per passage, on a 4GB GPU | 12s | 3s |
+| Time per passage, on a 4GB GPU | 6 to 7s | 3s |
 
 Teaching it a word works too: after two corrections from "people" to "folks", it used "folks" on new text.
 
@@ -131,9 +137,25 @@ voxmimic model auto                             # back to the best local model
 
 ## Your data
 
-Everything lives in `~/.voxmimic/`. `profile.vox` is a single SQLite file holding your samples, corrections and rules. Delete it and everything's gone. An older numpy-format `profile.vox` is migrated on first run, with the original kept as `profile.vox.legacy`.
+Everything lives in `~/.voxmimic/`. `profile.vox` is a single SQLite file holding your samples, corrections and rules. Delete it and everything's gone. To remove one lesson, use `/forget`.
+
+Text you paste isn't saved. The exception is when you fix or approve a result: that before/after pair is kept as an example, because learning from it is the point.
+ An older numpy-format `profile.vox` is migrated on first run, with the original kept as `profile.vox.legacy`.
 
 Set `VOXMIMIC_HOME` to keep it somewhere else.
+
+## Project layout
+
+| Path | What's there |
+|---|---|
+| `voxmimic/chat.py`, `cli.py`, `ui.py` | The conversation, the commands, and terminal input and output |
+| `voxmimic/rewrite.py`, `polish.py`, `checks.py` | The rewrite engine, your habits as rules, and the fact checks |
+| `voxmimic/style.py`, `baseline.py` | Measuring a voice, and the AI writing it's compared against |
+| `voxmimic/learn.py`, `daily.py`, `questions.py` | Learning from edits and rules, and the daily loop |
+| `voxmimic/storage.py`, `llm.py`, `embed.py` | The profile file, and model and embedding access |
+| `architecture/` | Diagrams: an editable draw.io file and a PNG of each tab |
+| `tests/`, `evals/` | Tests with a fake model, and the real-model evaluation |
+| `experiments/vox_t5/` | The retired T5 attempt, with the result that retired it |
 
 ## Development
 
