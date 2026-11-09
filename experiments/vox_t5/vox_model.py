@@ -104,8 +104,8 @@ class VoxConditionedT5(nn.Module):
         # Run T5 encoder
         encoder_outputs = self.t5.encoder(input_ids=input_ids)
 
-        # Add scaled style vector — small alpha prevents distortion of encoder hidden states
-        alpha = 0.1
+        # Add scaled style vector — tiny alpha nudges hidden states without destroying them
+        alpha = 0.01
         conditioned_hidden = (
             encoder_outputs.last_hidden_state
             + alpha * style_vector.unsqueeze(0).unsqueeze(0)
@@ -140,7 +140,7 @@ class VoxConditionedT5(nn.Module):
         str
             Decoded output text
         """
-        # Tokenize input
+        # Tokenize input — no task prefix; T5 generates from conditioned encoder states
         inputs = self.tokenizer(
             input_text,
             return_tensors="pt",
