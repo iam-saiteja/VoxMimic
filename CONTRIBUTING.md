@@ -37,6 +37,8 @@ Read the rewritten passages it prints, not only the summary. Several real bugs o
 
 ## Pull requests
 
+`main` is protected: nobody pushes to it directly. Fork the repository, make your change on a branch, and open a pull request against `main`. The tests run automatically on Linux, macOS and Windows, and they need to pass before a review.
+
 - Keep each pull request to one change, with a test that fails without it.
 - Run `pytest` and make sure it passes.
 - Add a line to `CHANGELOG.md` under "Unreleased".

@@ -8,6 +8,10 @@
 
 VoxMimic asks how you talk, learns your habits, and rewrites AI-generated text in your voice. It runs on your machine, and it keeps learning: one question and one sentence a day, plus every fix you make.
 
+- **Private by default.** The model runs on your computer through Ollama. Nothing is sent anywhere unless you choose a cloud model yourself.
+- **Learns from you, not from the text you paste.** Only your own writing, your fixes and your stated rules shape the profile.
+- **Careful with facts.** Every rewrite is checked for lost or invented numbers, names, links and sentences, and it tells you when something looks off.
+
 ```
 $ voxmimic
 
@@ -154,7 +158,8 @@ voxmimic model auto                             # back to the best local model
 Everything lives in `~/.voxmimic/`. `profile.vox` is a single SQLite file holding your samples, corrections and rules. Delete it and everything's gone. To remove one lesson, use `/forget`.
 
 Text you paste isn't saved. The exception is when you fix or approve a result: that before/after pair is kept as an example, because learning from it is the point.
- An older numpy-format `profile.vox` is migrated on first run, with the original kept as `profile.vox.legacy`.
+
+An older numpy-format `profile.vox` is migrated on first run, with the original kept as `profile.vox.legacy`.
 
 Set `VOXMIMIC_HOME` to keep it somewhere else.
 
@@ -171,9 +176,18 @@ Set `VOXMIMIC_HOME` to keep it somewhere else.
 | `tests/`, `evals/` | Tests with a fake model, and the real-model evaluation |
 | `experiments/vox_t5/` | The retired T5 attempt, with the result that retired it |
 
+## Limitations
+
+- **English only.** The style measurements and word lists are built for English.
+- **A small local model loosens details.** In testing, "product development" sometimes became "make the product". The checks catch some of this, not all of it, so read anything important before you send it.
+- **The first rewrite is slower.** It loads the model and prepares examples from your writing. Later rewrites reuse that work.
+- **It needs time to learn you.** A few answers give a rough first guess. `voxmimic inspect` shows a trend after about two weeks of daily sentences.
+- **Mostly tested on Windows.** The test suite runs on Linux and macOS too, but day-to-day use has mostly been on Windows.
+- **It's for your own voice.** It learns from the person using it. Don't use it to pass off writing as someone else's.
+
 ## Contributing
 
-Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, tests, and how to check a change to rewriting against the real-model evaluation. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+Bug reports and pull requests are welcome. `main` is protected, so changes go in through pull requests from a fork, and the tests must pass first. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, tests, and how to check a change to rewriting against the real-model evaluation. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 When reporting a problem, please don't paste your real writing or your profile into a public issue.
 
