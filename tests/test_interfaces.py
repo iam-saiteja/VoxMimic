@@ -283,3 +283,26 @@ def test_bad_model_spec_is_not_a_traceback():
 def test_openai_needs_a_model_name():
     with pytest.raises(LLMError, match="which model"):
         make_llm("openai")
+
+
+def test_version_flag():
+    from voxmimic import __version__
+
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0 and __version__ in result.output
+
+
+def test_doctor_explains_a_machine_with_nothing_installed():
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "ollama pull" in result.output and "not created yet" in result.output
+
+
+def test_doctor_with_everything_installed(monkeypatch):
+    from voxmimic import doctor
+
+    monkeypatch.setattr(llm_module, "ollama_models", lambda: [
+        OllamaModel("gemma3:4b", 3_300_000_000), OllamaModel("nomic-embed-text:latest", 270_000_000)])
+    monkeypatch.setattr(doctor, "_ollama_version", lambda: "0.33.3")
+    result = runner.invoke(app, ["doctor"])
+    assert "Everything's ready" in result.output and "gemma3:4b" in result.output

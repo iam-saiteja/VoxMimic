@@ -1,5 +1,9 @@
 # VoxMimic
 
+[![tests](https://github.com/iam-saiteja/VoxMimic/actions/workflows/tests.yml/badge.svg)](https://github.com/iam-saiteja/VoxMimic/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+
 > Paste AI text. Get it back sounding like you.
 
 VoxMimic asks how you talk, learns your habits, and rewrites AI-generated text in your voice. It runs on your machine, and it keeps learning: one question and one sentence a day, plus every fix you make.
@@ -46,22 +50,31 @@ There's one box to type in, and it works out what you meant:
 | `learn: something you wrote` | Adds it to what it knows about you. |
 | `/copy` `/why` `/me` `/undo` `/forget` `/help` | Copies, explains, shows your profile, forgets the last lesson, removes an earlier one, lists everything. |
 
-## Setup
+## Install
+
+You need Python 3.10 or newer, and [Ollama](https://ollama.com) for the local model.
+
+**1. Install VoxMimic.** [pipx](https://pipx.pypa.io) puts the `voxmimic` command on your path, with no virtual environment to activate:
 
 ```bash
-python -m venv venv
-.\venv\Scripts\Activate.ps1      # Windows. On macOS or Linux: source venv/bin/activate
-pip install -e .
-
-# A local model. Nothing you write leaves your machine.
-# Ollama: https://ollama.com
-ollama pull gemma3:4b
-ollama pull nomic-embed-text    # optional: better example matching, and it enables the meaning and dropped-sentence checks at full strength
-
-voxmimic
+pipx install git+https://github.com/iam-saiteja/VoxMimic.git
 ```
 
-Activate the virtual environment in each new terminal before running `voxmimic`.
+Or with plain pip, inside a virtual environment: `pip install git+https://github.com/iam-saiteja/VoxMimic.git`
+
+**2. Get the models.** About 3.6GB in total. Everything runs on your machine, and `gemma3:4b` fits on a 4GB GPU.
+
+```bash
+ollama pull gemma3:4b
+ollama pull nomic-embed-text    # optional, but it makes example matching and the meaning checks much more accurate
+```
+
+**3. Check, then start.**
+
+```bash
+voxmimic doctor    # says what's missing and how to fix it
+voxmimic
+```
 
 Without a model it still works, using rules only: it removes AI phrasing and applies your punctuation and casing habits, but it can't restructure sentences.
 
@@ -122,6 +135,7 @@ Plain `voxmimic` covers normal use. These are for scripts and shortcuts:
 | `voxmimic inspect` | What it knows, and whether it's improving. |
 | `voxmimic model [SPEC]` | Show or change the model. |
 | `voxmimic onboard` | Answer the opening questions again. |
+| `voxmimic doctor` | Check the setup and say how to fix what's missing. |
 
 ## Choosing a model
 
@@ -130,7 +144,7 @@ It uses local models only, unless you say otherwise. An API key in your environm
 ```bash
 voxmimic model ollama:gemma3:4b                 # a specific local model
 voxmimic model openai:NAME --base-url URL       # LM Studio, llama.cpp, vLLM, or OpenAI
-pip install -e ".[anthropic]"
+pipx inject voxmimic anthropic                  # or, with pip: pip install anthropic
 voxmimic model anthropic                        # Claude Opus 5.5
 voxmimic model auto                             # back to the best local model
 ```
@@ -157,13 +171,12 @@ Set `VOXMIMIC_HOME` to keep it somewhere else.
 | `tests/`, `evals/` | Tests with a fake model, and the real-model evaluation |
 | `experiments/vox_t5/` | The retired T5 attempt, with the result that retired it |
 
-## Development
+## Contributing
 
-```bash
-pip install -e ".[dev,anthropic]"
-pytest
-```
+Bug reports and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, tests, and how to check a change to rewriting against the real-model evaluation. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-The tests use a fake model and a temporary home directory, so they don't need Ollama and won't touch your real profile.
+When reporting a problem, please don't paste your real writing or your profile into a public issue.
 
-`experiments/vox_t5/` holds the earlier T5-small attempt and why it was retired.
+## License
+
+[MIT](LICENSE)

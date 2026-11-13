@@ -14,8 +14,19 @@ app = typer.Typer(
 )
 
 
+def _show_version(value: bool) -> None:
+    if value:
+        from voxmimic import __version__
+
+        print(f"voxmimic {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
-def main_callback(ctx: typer.Context):
+def main_callback(
+    ctx: typer.Context,
+    version: bool = typer.Option(False, "--version", callback=_show_version, is_eager=True, help="Show the version and exit."),
+):
     if ctx.invoked_subcommand is None:
         from voxmimic.chat import run
 
@@ -76,6 +87,14 @@ def inspect():
 def onboard():
     """Answer the opening questions again."""
     from voxmimic.onboard import run
+
+    run()
+
+
+@app.command()
+def doctor():
+    """Check that everything VoxMimic needs is installed, and how to fix what isn't."""
+    from voxmimic.doctor import run
 
     run()
 

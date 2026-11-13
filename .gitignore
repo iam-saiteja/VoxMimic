@@ -35,3 +35,6 @@ pip-wheel-metadata/
 
 # Local VoxMimic runtime files (if accidentally placed in repo)
 .voxmimic/
+
+# Tool folders
+.qodo/

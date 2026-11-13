@@ -1,3 +1,3 @@
-"""VoxMimic — Personal style rewriting CLI tool."""
+"""VoxMimic: rewrite AI-generated text in your own voice."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
